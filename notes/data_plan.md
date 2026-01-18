@@ -16,3 +16,8 @@
   - Kaggle Spotify Audio Features (130k tracks)
   - GTZAN (1000 tracks, audio features)
 - Build synthetic data generator to develop pipeline against
+
+## Status
+
+- 18 Jan: requested Spotify Extended Streaming History via privacy page
+- Waiting up to 30 days. Will work on synthetic data + public datasets in the meantime.
