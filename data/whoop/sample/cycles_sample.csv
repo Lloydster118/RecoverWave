@@ -1,0 +1,4 @@
+Cycle start time,Cycle end time,Recovery score %,Heart rate variability (ms),Resting heart rate (bpm),Day Strain
+2025-01-01T05:30:00Z,2025-01-02T05:30:00Z,68,42,58,11.2
+2025-01-02T05:30:00Z,2025-01-03T05:30:00Z,55,38,60,13.8
+2025-01-03T05:30:00Z,2025-01-04T05:30:00Z,72,45,57,8.4
