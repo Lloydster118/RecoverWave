@@ -49,3 +49,16 @@ if __name__ == "__main__":
     except FileNotFoundError as e:
         print(f"Place your Whoop CSVs in {data_dir}/")
         print(f"  Expected: physiological_cycles.csv, workouts.csv, sleeps.csv, journal_entries.csv")
+
+    def _load_cycles(self):
+        path = self.dir / "physiological_cycles.csv"
+        if not path.exists():
+            return pd.DataFrame()
+        df = pd.read_csv(path)
+        df["cycle_start"] = pd.to_datetime(df["Cycle start time"], utc=True)
+        df["cycle_end"] = pd.to_datetime(df["Cycle end time"], utc=True)
+        df["recovery_score"] = df["Recovery score %"]
+        df["hrv"] = df["Heart rate variability (ms)"]
+        df["rhr"] = df["Resting heart rate (bpm)"]
+        df["strain"] = df["Day Strain"]
+        return df[["cycle_start", "cycle_end", "recovery_score", "hrv", "rhr", "strain"]]
