@@ -62,3 +62,7 @@ if __name__ == "__main__":
         df["rhr"] = df["Resting heart rate (bpm)"]
         df["strain"] = df["Day Strain"]
         return df[["cycle_start", "cycle_end", "recovery_score", "hrv", "rhr", "strain"]]
+
+    def load_all(self):
+        cycles = self._load_cycles()
+        return {"cycles": cycles}
