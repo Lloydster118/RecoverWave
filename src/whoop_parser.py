@@ -66,3 +66,16 @@ if __name__ == "__main__":
     def load_all(self):
         cycles = self._load_cycles()
         return {"cycles": cycles}
+
+    def _load_workouts(self):
+        path = self.dir / "workouts.csv"
+        if not path.exists():
+            return pd.DataFrame()
+        df = pd.read_csv(path)
+        df["workout_start"] = pd.to_datetime(df["Workout start time"], utc=True)
+        df["workout_end"] = pd.to_datetime(df["Workout end time"], utc=True)
+        df["activity"] = df["Activity name"]
+        df["strain"] = df["Activity Strain"]
+        df["avg_hr"] = df["Average HR (bpm)"]
+        df["max_hr"] = df["Max HR (bpm)"]
+        return df[["workout_start", "workout_end", "activity", "strain", "avg_hr", "max_hr"]]
