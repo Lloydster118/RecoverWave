@@ -80,3 +80,19 @@ if __name__ == "__main__":
         df["avg_hr"] = df["Average HR (bpm)"]
         df["max_hr"] = df["Max HR (bpm)"]
         return df[["workout_start", "workout_end", "activity", "strain", "avg_hr", "max_hr"]]
+
+    def _load_sleeps(self):
+        path = self.dir / "sleeps.csv"
+        if not path.exists():
+            return pd.DataFrame()
+        df = pd.read_csv(path)
+        df["sleep_start"] = pd.to_datetime(df["Sleep start time"], utc=True)
+        df["sleep_end"] = pd.to_datetime(df["Sleep end time"], utc=True)
+        df["in_bed_min"] = df["In bed (min)"]
+        df["asleep_min"] = df["Asleep duration (min)"]
+        df["light_min"] = df["Light sleep duration (min)"]
+        df["deep_min"] = df["Deep (SWS) duration (min)"]
+        df["rem_min"] = df["REM duration (min)"]
+        df["awake_min"] = df["Awake duration (min)"]
+        df["efficiency"] = df["Sleep efficiency %"]
+        return df[["sleep_start", "sleep_end", "in_bed_min", "asleep_min", "light_min", "deep_min", "rem_min", "awake_min", "efficiency"]]
