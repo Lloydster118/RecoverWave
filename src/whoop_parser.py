@@ -66,7 +66,8 @@ if __name__ == "__main__":
     def load_all(self):
         cycles = self._load_cycles()
         workouts = self._load_workouts()
-        return {"cycles": cycles, "workouts": workouts}
+        sleeps = self._load_sleeps()
+        return {"cycles": cycles, "workouts": workouts, "sleeps": sleeps}
 
     def _load_workouts(self):
         path = self.dir / "workouts.csv"
