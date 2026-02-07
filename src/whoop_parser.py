@@ -67,7 +67,8 @@ if __name__ == "__main__":
         cycles = self._load_cycles()
         workouts = self._load_workouts()
         sleeps = self._load_sleeps()
-        return {"cycles": cycles, "workouts": workouts, "sleeps": sleeps}
+        journal = self._load_journal()
+        return {"cycles": cycles, "workouts": workouts, "sleeps": sleeps, "journal": journal}
 
     def _load_workouts(self):
         path = self.dir / "workouts.csv"
@@ -97,3 +98,13 @@ if __name__ == "__main__":
         df["awake_min"] = df["Awake duration (min)"]
         df["efficiency"] = df["Sleep efficiency %"]
         return df[["sleep_start", "sleep_end", "in_bed_min", "asleep_min", "light_min", "deep_min", "rem_min", "awake_min", "efficiency"]]
+
+    def _load_journal(self):
+        path = self.dir / "journal_entries.csv"
+        if not path.exists():
+            return pd.DataFrame()
+        df = pd.read_csv(path)
+        df["day"] = pd.to_datetime(df["Day"]).dt.date
+        # Pivot question/answer into wide form
+        wide = df.pivot_table(index="day", columns="Question", values="Answer", aggfunc="first").reset_index()
+        return wide
