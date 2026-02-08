@@ -107,4 +107,10 @@ if __name__ == "__main__":
         df["day"] = pd.to_datetime(df["Day"]).dt.date
         # Pivot question/answer into wide form
         wide = df.pivot_table(index="day", columns="Question", values="Answer", aggfunc="first").reset_index()
+        # Coerce Yes/No to bool
+        for col in wide.columns:
+            if col == "day":
+                continue
+            if wide[col].dropna().isin(["Yes", "No"]).all():
+                wide[col] = wide[col].map({"Yes": True, "No": False})
         return wide
