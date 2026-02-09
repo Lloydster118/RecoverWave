@@ -114,3 +114,10 @@ if __name__ == "__main__":
             if wide[col].dropna().isin(["Yes", "No"]).all():
                 wide[col] = wide[col].map({"Yes": True, "No": False})
         return wide
+
+    def build_daily_timeline(self):
+        data = self.load_all()
+        cycles = data["cycles"].copy()
+        cycles["day"] = cycles["cycle_start"].dt.date
+        cycles = cycles.set_index("day")
+        return cycles[["recovery_score", "hrv", "rhr", "strain"]]
