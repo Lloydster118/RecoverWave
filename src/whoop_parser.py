@@ -118,6 +118,7 @@ if __name__ == "__main__":
     def build_daily_timeline(self):
         data = self.load_all()
         cycles = data["cycles"].copy()
-        cycles["day"] = cycles["cycle_start"].dt.date
+        # Whoop cycle starts overnight - bucket by the END date so recovery scores align with the day they describe
+        cycles["day"] = cycles["cycle_end"].dt.tz_convert("Europe/London").dt.date
         cycles = cycles.set_index("day")
         return cycles[["recovery_score", "hrv", "rhr", "strain"]]
