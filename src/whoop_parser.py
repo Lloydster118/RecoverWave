@@ -120,5 +120,16 @@ if __name__ == "__main__":
         cycles = data["cycles"].copy()
         # Whoop cycle starts overnight - bucket by the END date so recovery scores align with the day they describe
         cycles["day"] = cycles["cycle_end"].dt.tz_convert("Europe/London").dt.date
-        cycles = cycles.set_index("day")
-        return cycles[["recovery_score", "hrv", "rhr", "strain"]]
+
+        # Workout aggregates per day
+        workouts = data["workouts"].copy()
+        if len(workouts):
+            workouts["day"] = workouts["workout_start"].dt.tz_convert("Europe/London").dt.date
+            wk_daily = workouts.groupby("day").agg(workout_count=("activity", "count"),
+                                                    workout_strain=("strain", "sum"),
+                                                    workout_max_hr=("max_hr", "max")).reset_index()
+        else:
+            wk_daily = pd.DataFrame(columns=["day", "workout_count", "workout_strain", "workout_max_hr"])
+
+        daily = cycles.merge(wk_daily, on="day", how="left").set_index("day")
+        return daily
