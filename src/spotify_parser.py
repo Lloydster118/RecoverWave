@@ -56,3 +56,14 @@ if __name__ == "__main__":
             print(f"\nListening window after {sample_time}: {len(window)} tracks")
     except FileNotFoundError as e:
         print(e)
+
+    def clean(self, df):
+        df = df.copy()
+        df["played_at"] = pd.to_datetime(df["ts"], utc=True)
+        df["minutes_played"] = df["ms_played"] / 60_000
+        df = df.rename(columns={
+            "master_metadata_track_name": "track",
+            "master_metadata_album_artist_name": "artist",
+            "spotify_track_uri": "uri",
+        })
+        return df[["played_at", "track", "artist", "uri", "minutes_played"]]
