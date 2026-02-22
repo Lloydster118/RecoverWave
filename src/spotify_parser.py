@@ -61,6 +61,8 @@ if __name__ == "__main__":
         df = df.copy()
         df["played_at"] = pd.to_datetime(df["ts"], utc=True)
         df["minutes_played"] = df["ms_played"] / 60_000
+        # Filter very short skips (< 30 seconds) - common spotify export noise
+        df = df[df["ms_played"] >= 30_000]
         df = df.rename(columns={
             "master_metadata_track_name": "track",
             "master_metadata_album_artist_name": "artist",
