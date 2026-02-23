@@ -69,3 +69,9 @@ if __name__ == "__main__":
             "spotify_track_uri": "uri",
         })
         return df[["played_at", "track", "artist", "uri", "minutes_played"]]
+
+    def get_listening_window(self, df, anchor, hours: float = 2.0):
+        from datetime import timedelta
+        window_end = anchor + timedelta(hours=hours)
+        mask = (df["played_at"] >= anchor) & (df["played_at"] < window_end)
+        return df[mask]
