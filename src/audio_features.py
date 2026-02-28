@@ -1,17 +1,16 @@
-"""Audio feature extraction - librosa-based.
+"""Audio feature extraction via Reccobeats API.
 
-Loading actual audio is expensive and we do not have direct file access to
-Spotify tracks. This approach is unlikely to scale.
+Reccobeats provides a free endpoint for Spotify-track-id -> audio feature lookup
+which restores the feature shape Spotify removed from its public API in 2024.
 """
 
-import librosa
-import numpy as np
+import json
+import time
+import urllib.request
+import urllib.error
 from pathlib import Path
+from typing import Iterable
 
 
-def extract_features(audio_path: Path) -> dict:
-    y, sr = librosa.load(str(audio_path), mono=True, duration=30.0)
-    tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
-    rms = librosa.feature.rms(y=y).mean()
-    centroid = librosa.feature.spectral_centroid(y=y, sr=sr).mean()
-    return {"tempo": float(tempo), "energy": float(rms), "centroid": float(centroid)}
+RECCO_BASE = "https://api.reccobeats.com/v1"
+CACHE_PATH = Path("data/processed/audio_feature_cache.json")
