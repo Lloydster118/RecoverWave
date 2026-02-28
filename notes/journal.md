@@ -23,3 +23,22 @@ Actions for me:
 - Add FR for live dashboard demo (FR-9 or FR-10).
 - Add FR for results-first report ordering as a documentation requirement.
 - Move on to data plan with the public-dataset fallback the proposal already mentioned.
+
+## 28 February 2026 - Back-to-back workouts and alignment edge case
+
+Found a corner in the listening alignment that I had not thought about: when
+two workouts happen within four hours of each other (a *brick* session, e.g.
+gym then run) the post-workout listening windows overlap. With a fixed two-hour
+window after each workout, tracks played between workout-B's start and
+workout-A's window-end get double-counted.
+
+In my own data this has happened twice that I can see - both gym-then-run
+weekend sessions. Not enough to matter statistically but the decision needs
+logging or it will get queried at the viva.
+
+Resolution: a track is assigned to the *earlier* workout's window, and the
+later workout's window starts only after the earlier window closes. This is
+implemented in `align_workouts_to_listening` by truncating the earlier window
+whenever the next workout's start time lands inside it.
+
+Protected by `tests/test_features_window.py::test_back_to_back_workouts_assign_to_earlier`.
