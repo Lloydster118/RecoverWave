@@ -49,6 +49,63 @@ def save_cache(cache: dict) -> None:
     CACHE_PATH.write_text(json.dumps(cache, indent=0))
 
 
+def lookup_reccobeats_ids(spotify_ids: Iterable[str],
+                          max_retries: int = 4) -> dict[str, str]:
+    """Map Spotify track IDs -> ReccoBeats internal IDs (batched, with retry)."""
+    ids = list({s for s in spotify_ids if s})
+    mapping: dict[str, str] = {}
+    failed_batches: list[list[str]] = []
+
+    def _do_batch(chunk: list[str]) -> tuple[list[str], bool]:
+        """Returns (resolved_ids, success). success=False means try again later."""
+        url = f"{BASE}/track?ids={','.join(chunk)}"
+        try:
+            r = requests.get(url, timeout=TIMEOUT)
+        except requests.RequestException:
+            return [], False
+        if r.status_code == 429 or r.status_code >= 500:
+            return [], False
+        if r.status_code != 200:
+            # 4xx: don't retry, some IDs malformed
+            return [], True
+        resolved = []
+        for t in r.json().get("content", []):
+            href = t.get("href", "")
+            sp_id = href.rsplit("/", 1)[-1] if href else None
+            if sp_id:
+                mapping[sp_id] = t["id"]
+                resolved.append(sp_id)
+        return resolved, True
+
+    # Initial pass
+    total = len(ids)
+    for i in range(0, total, BATCH_SIZE):
+        chunk = ids[i:i + BATCH_SIZE]
+        _, ok = _do_batch(chunk)
+        if not ok:
+            failed_batches.append(chunk)
+        if (i // BATCH_SIZE) % 10 == 0:
+            print(f"    lookup: {i + len(chunk)}/{total}, resolved {len(mapping)}, failed batches {len(failed_batches)}")
+        time.sleep(0.15)
+
+    # Retry failed batches with backoff
+    for attempt in range(1, max_retries + 1):
+        if not failed_batches:
+            break
+        wait = 2 ** attempt
+        print(f"    retry {attempt}: {len(failed_batches)} batches after {wait}s")
+        time.sleep(wait)
+        still_failed: list[list[str]] = []
+        for chunk in failed_batches:
+            _, ok = _do_batch(chunk)
+            if not ok:
+                still_failed.append(chunk)
+            time.sleep(0.2)
+        failed_batches = still_failed
+
+    return mapping
+
+
 # ─────────────────────────────────────────────────────────────────────
 # CLI
 # ─────────────────────────────────────────────────────────────────────
