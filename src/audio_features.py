@@ -106,6 +106,21 @@ def lookup_reccobeats_ids(spotify_ids: Iterable[str],
     return mapping
 
 
+def fetch_features_for_reccobeats_id(rb_id: str, max_retries: int = 4) -> dict | None:
+    for attempt in range(max_retries):
+        try:
+            r = requests.get(f"{BASE}/track/{rb_id}/audio-features", timeout=TIMEOUT)
+            if r.status_code == 200:
+                return r.json()
+            if r.status_code == 404:
+                return None  # genuine miss
+            # 429/5xx -> retry
+            time.sleep(0.5 * (2 ** attempt))
+        except requests.RequestException:
+            time.sleep(0.5 * (2 ** attempt))
+    return None
+
+
 # ─────────────────────────────────────────────────────────────────────
 # CLI
 # ─────────────────────────────────────────────────────────────────────
