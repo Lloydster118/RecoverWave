@@ -36,8 +36,6 @@ FEATURE_FIELDS = ("danceability", "energy", "valence", "tempo", "loudness",
 # ─────────────────────────────────────────────────────────────────────
 # Cache
 # ─────────────────────────────────────────────────────────────────────
-
-
 def load_cache() -> dict:
     if CACHE_PATH.exists():
         return json.loads(CACHE_PATH.read_text())
@@ -49,6 +47,9 @@ def save_cache(cache: dict) -> None:
     CACHE_PATH.write_text(json.dumps(cache, indent=0))
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Step 1: Spotify ID -> ReccoBeats internal ID
+# ─────────────────────────────────────────────────────────────────────
 def lookup_reccobeats_ids(spotify_ids: Iterable[str],
                           max_retries: int = 4) -> dict[str, str]:
     """Map Spotify track IDs -> ReccoBeats internal IDs (batched, with retry)."""
@@ -106,6 +107,9 @@ def lookup_reccobeats_ids(spotify_ids: Iterable[str],
     return mapping
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Step 2: ReccoBeats ID -> audio features
+# ─────────────────────────────────────────────────────────────────────
 def fetch_features_for_reccobeats_id(rb_id: str, max_retries: int = 4) -> dict | None:
     for attempt in range(max_retries):
         try:
@@ -119,6 +123,66 @@ def fetch_features_for_reccobeats_id(rb_id: str, max_retries: int = 4) -> dict |
         except requests.RequestException:
             time.sleep(0.5 * (2 ** attempt))
     return None
+
+
+def fetch_all_features(
+    spotify_ids: Iterable[str],
+    max_workers: int = 4,
+    progress_every: int = 200,
+) -> dict[str, dict]:
+    """Return Spotify track ID -> audio feature dict. Uses + updates cache."""
+    cache = load_cache()
+    want = [s for s in {s for s in spotify_ids if s} if s not in cache]
+    print(f"Cache hits: {len(spotify_ids) - len(want)} / {len(spotify_ids)}")
+    print(f"Need to fetch: {len(want)}")
+
+    if not want:
+        return {s: cache[s] for s in spotify_ids if s in cache}
+
+    # Step 1: resolve to ReccoBeats IDs
+    print("Resolving Spotify IDs -> ReccoBeats IDs…")
+    sp_to_rb = lookup_reccobeats_ids(want)
+    print(f"  Resolved {len(sp_to_rb)} / {len(want)} "
+          f"({100 * len(sp_to_rb) / len(want):.1f}% coverage)")
+
+    # Step 2: fetch features (lower concurrency to avoid rate limits)
+    print("Fetching audio features…")
+    rb_to_sp = {rb: sp for sp, rb in sp_to_rb.items()}
+    done = 0
+    failed: list[tuple[str, str]] = []  # (sp_id, rb_id) for retry
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {ex.submit(fetch_features_for_reccobeats_id, rb): rb
+                   for rb in sp_to_rb.values()}
+        for fut in as_completed(futures):
+            rb = futures[fut]
+            sp = rb_to_sp[rb]
+            feat = fut.result()
+            if feat:
+                cache[sp] = {k: feat.get(k) for k in FEATURE_FIELDS}
+            else:
+                failed.append((sp, rb))
+            done += 1
+            if done % progress_every == 0:
+                print(f"    {done}/{len(sp_to_rb)} (failed so far: {len(failed)})")
+                save_cache(cache)
+
+    # Serial retry of failures with backoff
+    if failed:
+        print(f"  Retrying {len(failed)} failed feature fetches serially…")
+        for sp, rb in failed:
+            feat = fetch_features_for_reccobeats_id(rb, max_retries=5)
+            cache[sp] = {k: feat.get(k) for k in FEATURE_FIELDS} if feat else None
+            time.sleep(0.15)
+
+    # Mark unresolved tracks so we don't retry them
+    for s in want:
+        cache.setdefault(s, None)
+
+    save_cache(cache)
+    hits = sum(1 for s in spotify_ids if cache.get(s))
+    print(f"Final coverage: {hits} / {len(spotify_ids)} "
+          f"({100 * hits / len(spotify_ids):.1f}%)")
+    return {s: cache[s] for s in spotify_ids if s in cache}
 
 
 # ─────────────────────────────────────────────────────────────────────
