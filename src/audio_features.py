@@ -51,7 +51,7 @@ def save_cache(cache: dict) -> None:
 # Step 1: Spotify ID -> ReccoBeats internal ID
 # ─────────────────────────────────────────────────────────────────────
 def lookup_reccobeats_ids(spotify_ids: Iterable[str],
-                          max_retries: int = 4) -> dict[str, str]:
+                          max_retries: int = 6) -> dict[str, str]:
     """Map Spotify track IDs -> ReccoBeats internal IDs (batched, with retry)."""
     ids = list({s for s in spotify_ids if s})
     mapping: dict[str, str] = {}
@@ -110,7 +110,7 @@ def lookup_reccobeats_ids(spotify_ids: Iterable[str],
 # ─────────────────────────────────────────────────────────────────────
 # Step 2: ReccoBeats ID -> audio features
 # ─────────────────────────────────────────────────────────────────────
-def fetch_features_for_reccobeats_id(rb_id: str, max_retries: int = 4) -> dict | None:
+def fetch_features_for_reccobeats_id(rb_id: str, max_retries: int = 6) -> dict | None:
     for attempt in range(max_retries):
         try:
             r = requests.get(f"{BASE}/track/{rb_id}/audio-features", timeout=TIMEOUT)
