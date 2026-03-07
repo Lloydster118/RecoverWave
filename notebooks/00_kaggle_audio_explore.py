@@ -18,6 +18,8 @@ def main():
         return
     df = pd.read_csv(DATA)
     print(f"Loaded {len(df):,} tracks across {df['genre'].nunique()} genres")
+    print("\nMean by genre (top 8):")
+    print(df.groupby("genre")[["tempo", "energy", "valence"]].mean().head(8))
     print(df[['tempo', 'energy', 'valence', 'danceability']].describe())
 
     fig, axes = plt.subplots(1, 4, figsize=(16, 3))
