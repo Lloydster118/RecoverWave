@@ -42,3 +42,26 @@ implemented in `align_workouts_to_listening` by truncating the earlier window
 whenever the next workout's start time lands inside it.
 
 Protected by `tests/test_features_window.py::test_back_to_back_workouts_assign_to_earlier`.
+
+## 14 March 2026 - Supervisor check-in
+
+Forty-minute video call covering modelling progress. Headline points:
+
+- Showed early pilot CV results on synthetic data. Ridge, GBM and the
+  attention-LSTM are all within a tenth of an MAE point of each other and
+  all roughly track the seasonal day-of-week baseline. Supervisor was
+  unsurprised - their phrasing was "this is the n=1 ceiling, not a
+  model problem."
+- Discussed MSE vs MAE as the training loss for the LSTM. Pilot runs with
+  MSE produced sharply contracted predictions (regression to the in-fold
+  mean). Agreed to switch to `nn.L1Loss` - the predicted distribution
+  widens, correlation improves slightly, MAE rises by ~0.1 point. Worth it
+  for the wider spread.
+- Supervisor flagged that the daily-email FR-12 may need de-scoping if the
+  models do not show a positive cross-validated \(R^2\). Will reassess once
+  the real data arrives and the full CV table is in.
+- Reminded me to be ruthless about negative results in the report:
+  frame the day-of-week tie as a *finding* about the data, not a model
+  failure.
+
+Next check-in: mid-late April once real data is ingested.
