@@ -94,5 +94,52 @@ def load_sleeps() -> pd.DataFrame:
     return sl
 
 
+def attach_post_workout_sleep(workouts: pd.DataFrame, sleeps: pd.DataFrame,
+                              max_lag_h: float = 24.0) -> pd.DataFrame:
+    """For each workout end, find the first sleep_onset within `max_lag_h` hours."""
+    sleeps_sorted = sleeps.sort_values("sleep_onset").reset_index(drop=True)
+    # Convert tz-aware datetimes to UTC-naive ns since epoch (uniform unit)
+    onset_ns = (sleeps_sorted["sleep_onset"].dt.tz_convert("UTC")
+                                              .dt.tz_localize(None)
+                                              .astype("datetime64[ns]")
+                                              .astype("int64")
+                                              .to_numpy())
+
+    rows = []
+    for _, w in workouts.iterrows():
+        end = pd.Timestamp(w["workout_end_utc"])
+        if end.tz is None:
+            end = end.tz_localize("UTC")
+        end_ns = end.tz_convert("UTC").tz_localize(None).value
+        idx = np.searchsorted(onset_ns, end_ns, side="right")
+        if idx >= len(sleeps_sorted):
+            rows.append(None); continue
+        sl = sleeps_sorted.iloc[idx]
+        lag_h = (sl["sleep_onset"] - end).total_seconds() / 3600
+        if lag_h > max_lag_h:
+            rows.append(None); continue
+        rows.append({
+            "sleep_onset_lag_h": lag_h,
+            "bedtime_hours_past_noon": sl["bedtime_hours_past_noon"],
+            "bedtime_delta_personal": sl["bedtime_delta_personal"],
+            "is_late_bedtime": sl["is_late_bedtime"],
+            "sleep_duration_h": sl["sleep_duration_h"],
+            "sleep_efficiency": sl["sleep_efficiency"],
+            "sleep_performance": sl["sleep_performance"],
+            "sleep_consistency": sl["sleep_consistency"],
+            "rem_min": sl["rem_min"],
+            "deep_min": sl["deep_min"],
+            "light_min": sl["light_min"],
+            "awake_min": sl["awake_min"],
+            "respiratory_rate": sl["respiratory_rate"],
+        })
+
+    # Replace None entries with empty dicts so DataFrame builds with NaN rows
+    rows = [r if r is not None else {} for r in rows]
+    sleep_df = pd.DataFrame(rows)
+    return pd.concat([workouts.reset_index(drop=True),
+                      sleep_df.reset_index(drop=True)], axis=1)
+
+
 if __name__ == "__main__":
     main()
