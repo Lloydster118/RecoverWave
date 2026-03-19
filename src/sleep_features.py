@@ -141,5 +141,24 @@ def attach_post_workout_sleep(workouts: pd.DataFrame, sleeps: pd.DataFrame,
                       sleep_df.reset_index(drop=True)], axis=1)
 
 
+def correlate(df: pd.DataFrame, target: str = "next_day_recovery") -> pd.DataFrame:
+    trainable = df.dropna(subset=[target]).copy()
+    candidates = [c for c in trainable.columns
+                  if c not in {target, "workout_end_utc", "workout_end_local",
+                               "activity"}
+                  and trainable[c].dtype != "O"]
+    out = []
+    for c in candidates:
+        pair = trainable[[c, target]].dropna()
+        if len(pair) < 20:
+            continue
+        r, p = stats.pearsonr(pair[c], pair[target])
+        rho, p_s = stats.spearmanr(pair[c], pair[target])
+        out.append({"feature": c, "n": len(pair),
+                    "pearson_r": r, "pearson_p": p,
+                    "spearman_r": rho, "spearman_p": p_s})
+    return pd.DataFrame(out).sort_values("pearson_r", key=abs, ascending=False)
+
+
 if __name__ == "__main__":
     main()
