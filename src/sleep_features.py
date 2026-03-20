@@ -160,5 +160,50 @@ def correlate(df: pd.DataFrame, target: str = "next_day_recovery") -> pd.DataFra
     return pd.DataFrame(out).sort_values("pearson_r", key=abs, ascending=False)
 
 
+def mediation_snapshot(df: pd.DataFrame) -> dict:
+    """
+    Quick Baron & Kenny–style check for whether sleep mediates the link
+    between post-workout listening behaviour and recovery.
+
+    Predictor (X): n_tracks (the strongest 'music quantity' signal)
+    Mediator (M): sleep_duration_h
+    Outcome (Y): next_day_recovery
+
+    Reports:
+      a    : X -> M
+      b    : M -> Y (controlling for X)  [via partial correlation]
+      c    : X -> Y (total effect)
+      c'   : X -> Y controlling for M     [direct effect]
+    """
+    import statsmodels.api as sm
+    use = df.dropna(subset=["n_tracks", "sleep_duration_h", "next_day_recovery"]).copy()
+    if len(use) < 30:
+        return {"error": "too few rows for mediation"}
+
+    X = sm.add_constant(use["n_tracks"])
+    a_model = sm.OLS(use["sleep_duration_h"], X).fit()
+    a = a_model.params["n_tracks"]
+
+    Xy = sm.add_constant(use["n_tracks"])
+    c_model = sm.OLS(use["next_day_recovery"], Xy).fit()
+    c = c_model.params["n_tracks"]
+
+    XM = sm.add_constant(use[["n_tracks", "sleep_duration_h"]])
+    cprime_model = sm.OLS(use["next_day_recovery"], XM).fit()
+    cprime = cprime_model.params["n_tracks"]
+    b = cprime_model.params["sleep_duration_h"]
+
+    indirect = a * b
+    proportion_mediated = (indirect / c) if abs(c) > 1e-6 else np.nan
+
+    return {
+        "n": len(use),
+        "a (X->M)": a, "b (M->Y|X)": b,
+        "c (total X->Y)": c, "c' (direct X->Y|M)": cprime,
+        "indirect a*b": indirect,
+        "proportion mediated": proportion_mediated,
+    }
+
+
 if __name__ == "__main__":
     main()
