@@ -65,3 +65,22 @@ Forty-minute video call covering modelling progress. Headline points:
   failure.
 
 Next check-in: mid-late April once real data is ingested.
+
+## 22 March 2026 - FR-12 (daily email) de-scoped
+
+After the early modelling work this week it is clear no model is going to
+achieve a positive cross-validated \(R^2\) - the four learners are tied with
+the seasonal day-of-week baseline to within one MAE point and all sit at
+slightly negative \(R^2\). A daily-email recommender built on top of a
+flat-line predictor would be actively misleading: it would print a number
+that looks like a recovery forecast but is dominated by weekday mean.
+
+Decision: de-scope FR-12 entirely. The dashboard already meets FR-9 (live
+demo on contemporary data) and FR-10 (attention-weight explainability), and
+those are the requirements that exercise the actual research contribution.
+The daily-email pipeline would add code that has to be maintained for a
+feature that the data does not support.
+
+Emailed [supervisor] and got concurrence within the hour. Recording the
+decision here per the kick-off agreement that any scope change has to be
+logged in this journal before being acted on.
