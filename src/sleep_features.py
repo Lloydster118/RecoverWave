@@ -51,8 +51,6 @@ MUTED = "#7A7974"
 # ─────────────────────────────────────────────────────────────────────
 # 1. Load and clean the sleeps table
 # ─────────────────────────────────────────────────────────────────────
-
-
 def load_sleeps() -> pd.DataFrame:
     sl = pd.read_csv(ROOT / "data/whoop/sleeps.csv")
     # Drop naps — only main sleeps are relevant for recovery
@@ -94,6 +92,9 @@ def load_sleeps() -> pd.DataFrame:
     return sl
 
 
+# ─────────────────────────────────────────────────────────────────────
+# 2. For each workout, find the next sleep onset
+# ─────────────────────────────────────────────────────────────────────
 def attach_post_workout_sleep(workouts: pd.DataFrame, sleeps: pd.DataFrame,
                               max_lag_h: float = 24.0) -> pd.DataFrame:
     """For each workout end, find the first sleep_onset within `max_lag_h` hours."""
@@ -141,6 +142,9 @@ def attach_post_workout_sleep(workouts: pd.DataFrame, sleeps: pd.DataFrame,
                       sleep_df.reset_index(drop=True)], axis=1)
 
 
+# ─────────────────────────────────────────────────────────────────────
+# 3. Re-run correlations
+# ─────────────────────────────────────────────────────────────────────
 def correlate(df: pd.DataFrame, target: str = "next_day_recovery") -> pd.DataFrame:
     trainable = df.dropna(subset=[target]).copy()
     candidates = [c for c in trainable.columns
@@ -160,6 +164,9 @@ def correlate(df: pd.DataFrame, target: str = "next_day_recovery") -> pd.DataFra
     return pd.DataFrame(out).sort_values("pearson_r", key=abs, ascending=False)
 
 
+# ─────────────────────────────────────────────────────────────────────
+# 4. Mediation snapshot — does sleep mediate music → recovery?
+# ─────────────────────────────────────────────────────────────────────
 def mediation_snapshot(df: pd.DataFrame) -> dict:
     """
     Quick Baron & Kenny–style check for whether sleep mediates the link
@@ -203,6 +210,133 @@ def mediation_snapshot(df: pd.DataFrame) -> dict:
         "indirect a*b": indirect,
         "proportion mediated": proportion_mediated,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 5. Figures
+# ─────────────────────────────────────────────────────────────────────
+def plot_sleep_correlations(res: pd.DataFrame, out_path: Path):
+    """Two-panel ranked-bar with right-side r/p/n table (same pattern as fig_13)."""
+    top = res.head(20).reset_index(drop=True)
+    n = len(top)
+    fig, (ax_bar, ax_tbl) = plt.subplots(
+        1, 2, figsize=(12, 7),
+        gridspec_kw={"width_ratios": [3, 1.3], "wspace": 0.05},
+    )
+    y = np.arange(n)[::-1]
+    colors = [ACCENT if r >= 0 else ACCENT2 for r in top["pearson_r"]]
+    ax_bar.barh(y, top["pearson_r"], color=colors, alpha=0.88)
+    ax_bar.set_yticks(y)
+    ax_bar.set_yticklabels(top["feature"].str.replace("_", " "), fontsize=10)
+    ax_bar.axvline(0, color="#28251D", lw=0.6)
+    ax_bar.set_xlabel("Pearson r (vs next-day recovery)")
+    ax_bar.set_title(
+        "Combined music + sleep features ranked by |r| with next-day recovery",
+        pad=12, loc="left",
+    )
+    xmax = max(abs(top["pearson_r"].max()), abs(top["pearson_r"].min())) * 1.15
+    ax_bar.set_xlim(-xmax, xmax)
+
+    ax_tbl.set_xlim(0, 1); ax_tbl.set_ylim(ax_bar.get_ylim()); ax_tbl.axis("off")
+    ax_tbl.text(0.08, n - 0.5, "r", fontsize=10, fontweight="bold", color="#28251D")
+    ax_tbl.text(0.45, n - 0.5, "p", fontsize=10, fontweight="bold", color="#28251D")
+    ax_tbl.text(0.80, n - 0.5, "n", fontsize=10, fontweight="bold", color="#28251D")
+    for i, row in top.iterrows():
+        yi = n - 1 - i
+        sig = "*" if row["pearson_p"] < 0.05 else " "
+        ax_tbl.text(0.08, yi, f"{row['pearson_r']:+.3f}", fontsize=10, va="center",
+                    color="#28251D",
+                    fontweight="bold" if row["pearson_p"] < 0.05 else "normal")
+        ax_tbl.text(0.45, yi, f"{row['pearson_p']:.3f}{sig}", fontsize=10,
+                    va="center", color="#28251D")
+        ax_tbl.text(0.80, yi, f"{int(row['n'])}", fontsize=10, va="center", color=MUTED)
+
+    fig.text(0.5, 0.02,
+             "* p < 0.05    |    Teal = positive correlation, red = negative",
+             ha="center", fontsize=9, color=MUTED)
+    plt.savefig(out_path, bbox_inches="tight"); plt.close()
+
+
+def plot_indirect_pathway(df: pd.DataFrame, mediation: dict, out_path: Path):
+    """Three scatter panels: music→sleep, sleep→recovery, music→recovery (raw + adjusted)."""
+    use = df.dropna(subset=["n_tracks", "sleep_duration_h", "next_day_recovery"])
+    fig, axes = plt.subplots(1, 3, figsize=(13, 4.4))
+
+    pairs = [
+        (axes[0], use["n_tracks"], use["sleep_duration_h"],
+         "Post-workout n_tracks", "Sleep duration (h)",
+         f"a path: music \u2192 sleep\nslope = {mediation['a (X->M)']:+.4f} h / track"),
+        (axes[1], use["sleep_duration_h"], use["next_day_recovery"],
+         "Sleep duration (h)", "Next-day recovery %",
+         f"b path: sleep \u2192 recovery\nslope = {mediation['b (M->Y|X)']:+.2f} % / hour"),
+        (axes[2], use["n_tracks"], use["next_day_recovery"],
+         "Post-workout n_tracks", "Next-day recovery %",
+         f"c path: music \u2192 recovery (total)\nslope = {mediation['c (total X->Y)']:+.3f} % / track"),
+    ]
+    for ax, x, y, xlab, ylab, title in pairs:
+        ax.scatter(x, y, s=14, alpha=0.35, color=ACCENT)
+        slope, intercept, r, p, _ = stats.linregress(x, y)
+        xs = np.linspace(x.min(), x.max(), 50)
+        ax.plot(xs, intercept + slope * xs, color=ACCENT2, lw=1.6)
+        ax.set_xlabel(xlab); ax.set_ylabel(ylab)
+        ax.set_title(f"{title}\nr = {r:+.3f}, p = {p:.3f}", fontsize=10)
+
+    pct = mediation["proportion mediated"]
+    pct_str = f"{pct:.1%}" if not np.isnan(pct) else "n/a"
+    fig.suptitle(
+        "Indirect-pathway test: does sleep duration mediate "
+        f"music \u2192 recovery? (proportion mediated \u2248 {pct_str}, n = {mediation['n']})",
+        fontsize=12, fontweight="bold",
+    )
+    plt.tight_layout()
+    plt.savefig(out_path, bbox_inches="tight"); plt.close()
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Main
+# ─────────────────────────────────────────────────────────────────────
+def main():
+    print("Loading workout features and sleeps…")
+    wkf = pd.read_csv(ROOT / "data/processed/workout_features.csv")
+    wkf["workout_end_utc"] = pd.to_datetime(wkf["workout_end_utc"], utc=True,
+                                            errors="coerce")
+    sleeps = load_sleeps()
+    print(f"  Workouts: {len(wkf)}")
+    print(f"  Main sleeps (naps removed): {len(sleeps)}")
+
+    print("\nMatching workouts to next sleep…")
+    merged = attach_post_workout_sleep(wkf, sleeps)
+    matched = merged["sleep_duration_h"].notna().sum()
+    print(f"  Workouts with a matched post-workout sleep: {matched} / {len(merged)}")
+
+    out_csv = ROOT / "data/processed/workout_features_with_sleep.csv"
+    merged.to_csv(out_csv, index=False)
+    print(f"Saved → {out_csv}")
+
+    print("\nRunning correlations (music + sleep features)…")
+    res = correlate(merged)
+    res_csv = ROOT / "data/processed/correlations_with_sleep.csv"
+    res.to_csv(res_csv, index=False)
+    print(f"Saved → {res_csv}")
+
+    print("\n=== Top 20 features by |Pearson r| vs next-day recovery ===")
+    print(res.head(20).to_string(
+        index=False,
+        formatters={"pearson_r": "{:+.3f}".format, "pearson_p": "{:.3f}".format,
+                    "spearman_r": "{:+.3f}".format, "spearman_p": "{:.3f}".format},
+    ))
+
+    print("\nMediation snapshot (music \u2192 sleep \u2192 recovery)…")
+    med = mediation_snapshot(merged)
+    for k, v in med.items():
+        print(f"  {k}: {v:.4f}" if isinstance(v, float) else f"  {k}: {v}")
+
+    print("\nGenerating figures…")
+    FIG = ROOT / "data/processed/figures"
+    plot_sleep_correlations(res, FIG / "fig_14_sleep_correlations.png")
+    print("  fig_14_sleep_correlations.png")
+    plot_indirect_pathway(merged, med, FIG / "fig_15_indirect_pathway.png")
+    print("  fig_15_indirect_pathway.png")
 
 
 if __name__ == "__main__":
