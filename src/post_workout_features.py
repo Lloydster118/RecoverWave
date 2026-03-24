@@ -90,5 +90,58 @@ def _slope(values: np.ndarray) -> float:
     return float(slope)
 
 
+def aggregate_window(window_tracks: pd.DataFrame, feat: pd.DataFrame) -> dict:
+    """Join window tracks to features, compute aggregates."""
+    joined = window_tracks.merge(feat, left_on="track_id", right_index=True, how="left")
+    n_total = len(window_tracks)
+    n_with_feat = joined[NUMERIC_FEATURES[0]].notna().sum()
+
+    agg = {
+        "n_tracks": n_total,
+        "n_tracks_with_features": int(n_with_feat),
+        "feature_coverage": float(n_with_feat / n_total) if n_total else 0.0,
+        "total_listen_minutes": float(window_tracks["listen_seconds"].sum() / 60),
+        "unique_artists": int(window_tracks["artist_name"].nunique()),
+        "mean_track_len_min": float(window_tracks["listen_seconds"].mean() / 60),
+        "artist_concentration": (  # HHI-like: 1 means all same artist
+            float((window_tracks["artist_name"].value_counts(normalize=True) ** 2).sum())
+            if n_total else np.nan
+        ),
+    }
+
+    if n_with_feat == 0:
+        for f in NUMERIC_FEATURES:
+            agg[f"{f}_mean"] = np.nan
+            agg[f"{f}_median"] = np.nan
+            agg[f"{f}_std"] = np.nan
+        agg["mood_diversity"] = np.nan
+        agg["tempo_slope"] = np.nan
+        agg["energy_slope"] = np.nan
+        agg["valence_slope"] = np.nan
+        return agg
+
+    for f in NUMERIC_FEATURES:
+        vals = joined[f].dropna().to_numpy()
+        agg[f"{f}_mean"] = float(np.mean(vals)) if len(vals) else np.nan
+        agg[f"{f}_median"] = float(np.median(vals)) if len(vals) else np.nan
+        agg[f"{f}_std"] = float(np.std(vals, ddof=1)) if len(vals) > 1 else 0.0
+
+    # Mood diversity: average std across normalised mood dims
+    mood_stds = []
+    for f in MOOD_DIVERSITY_FIELDS:
+        vals = joined[f].dropna().to_numpy()
+        if len(vals) > 1:
+            mood_stds.append(np.std(vals, ddof=1))
+    agg["mood_diversity"] = float(np.mean(mood_stds)) if mood_stds else np.nan
+
+    # Trajectory slopes (track-by-track)
+    series = joined.sort_values("start_time")
+    agg["tempo_slope"] = _slope(series["tempo"].to_numpy())
+    agg["energy_slope"] = _slope(series["energy"].to_numpy())
+    agg["valence_slope"] = _slope(series["valence"].to_numpy())
+
+    return agg
+
+
 if __name__ == "__main__":
     main()
