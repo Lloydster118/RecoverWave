@@ -143,5 +143,31 @@ def aggregate_window(window_tracks: pd.DataFrame, feat: pd.DataFrame) -> dict:
     return agg
 
 
+def build_workout_features(parser, feat, wk) -> pd.DataFrame:
+    rows = []
+    for _, w in wk.iterrows():
+        win = parser.get_listening_window(w["end_utc"], window_hours=WINDOW_HOURS)
+        if len(win) == 0:
+            continue
+        agg = aggregate_window(win, feat)
+        agg.update({
+            "workout_end_utc": w["end_utc"],
+            "workout_end_local": w["workout_end_time"],
+            "activity": w.get("activity_name"),
+            "activity_strain": w.get("activity_strain"),
+            "duration": w.get("duration"),
+            "next_day_recovery": w.get("next_day_recovery"),
+            "day_strain": w.get("strain_score"),
+        })
+        rows.append(agg)
+    df = pd.DataFrame(rows)
+    print(f"Workouts with ≥1 post-track: {len(df)}")
+    df = df[df["n_tracks"] >= MIN_TRACKS_IN_WINDOW].reset_index(drop=True)
+    print(f"After filter ≥{MIN_TRACKS_IN_WINDOW} tracks: {len(df)}")
+    trainable = df.dropna(subset=["next_day_recovery"])
+    print(f"With next-day recovery (trainable): {len(trainable)}")
+    return df
+
+
 if __name__ == "__main__":
     main()
