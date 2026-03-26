@@ -169,5 +169,27 @@ def build_workout_features(parser, feat, wk) -> pd.DataFrame:
     return df
 
 
+def correlate(df: pd.DataFrame, target: str = "next_day_recovery") -> pd.DataFrame:
+    trainable = df.dropna(subset=[target]).copy()
+    candidates = [c for c in trainable.columns
+                  if c not in {target, "workout_end_utc", "workout_end_local",
+                               "activity"}
+                  and trainable[c].dtype != "O"]
+    results = []
+    for c in candidates:
+        pair = trainable[[c, target]].dropna()
+        if len(pair) < 20:
+            continue
+        r, p = stats.pearsonr(pair[c], pair[target])
+        rho, p_s = stats.spearmanr(pair[c], pair[target])
+        results.append({
+            "feature": c, "n": len(pair),
+            "pearson_r": r, "pearson_p": p,
+            "spearman_r": rho, "spearman_p": p_s,
+        })
+    res = pd.DataFrame(results).sort_values("pearson_r", key=abs, ascending=False)
+    return res
+
+
 if __name__ == "__main__":
     main()
