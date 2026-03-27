@@ -58,8 +58,6 @@ MUTED = "#7A7974"
 # ─────────────────────────────────────────────────────────────────────
 # 1. Load everything
 # ─────────────────────────────────────────────────────────────────────
-
-
 def load_data():
     parser = SpotifyParser(str(ROOT / "data/spotify/Spotify Extended Streaming History"))
     parser.load(); parser.clean()
@@ -77,6 +75,9 @@ def load_data():
     return parser, feat, wk
 
 
+# ─────────────────────────────────────────────────────────────────────
+# 2. Per-window aggregation
+# ─────────────────────────────────────────────────────────────────────
 def _slope(values: np.ndarray) -> float:
     """Linear slope across a sequence (per-track index)."""
     if len(values) < 2 or np.all(np.isnan(values)):
@@ -143,6 +144,9 @@ def aggregate_window(window_tracks: pd.DataFrame, feat: pd.DataFrame) -> dict:
     return agg
 
 
+# ─────────────────────────────────────────────────────────────────────
+# 3. Build workout-level DataFrame
+# ─────────────────────────────────────────────────────────────────────
 def build_workout_features(parser, feat, wk) -> pd.DataFrame:
     rows = []
     for _, w in wk.iterrows():
@@ -169,6 +173,9 @@ def build_workout_features(parser, feat, wk) -> pd.DataFrame:
     return df
 
 
+# ─────────────────────────────────────────────────────────────────────
+# 4. Correlation pass
+# ─────────────────────────────────────────────────────────────────────
 def correlate(df: pd.DataFrame, target: str = "next_day_recovery") -> pd.DataFrame:
     trainable = df.dropna(subset=[target]).copy()
     candidates = [c for c in trainable.columns
@@ -189,6 +196,143 @@ def correlate(df: pd.DataFrame, target: str = "next_day_recovery") -> pd.DataFra
         })
     res = pd.DataFrame(results).sort_values("pearson_r", key=abs, ascending=False)
     return res
+
+
+# ─────────────────────────────────────────────────────────────────────
+# 5. Figures
+# ─────────────────────────────────────────────────────────────────────
+def plot_feature_distributions(df, out_path):
+    feats = ["tempo_mean", "valence_mean", "energy_mean",
+             "danceability_mean", "loudness_mean", "mood_diversity"]
+    fig, axes = plt.subplots(2, 3, figsize=(12, 6.5))
+    for ax, f in zip(axes.flat, feats):
+        vals = df[f].dropna()
+        ax.hist(vals, bins=30, color=ACCENT, alpha=0.85, edgecolor="white")
+        ax.axvline(vals.median(), color=ACCENT2, ls="--",
+                   label=f"median = {vals.median():.2f}")
+        ax.set_title(f.replace("_", " "))
+        ax.legend(fontsize=8)
+    fig.suptitle("Post-workout listening features — distribution across workouts",
+                 fontsize=13, fontweight="bold")
+    plt.tight_layout()
+    plt.savefig(out_path); plt.close()
+
+
+def plot_feature_vs_recovery(df, out_path):
+    trainable = df.dropna(subset=["next_day_recovery"])
+    feats = [("tempo_mean", "Mean tempo (BPM)"),
+             ("valence_mean", "Mean valence"),
+             ("energy_mean", "Mean energy"),
+             ("danceability_mean", "Mean danceability"),
+             ("mood_diversity", "Mood diversity"),
+             ("total_listen_minutes", "Total listen (min)")]
+    fig, axes = plt.subplots(2, 3, figsize=(12, 7))
+    for ax, (f, label) in zip(axes.flat, feats):
+        pair = trainable[[f, "next_day_recovery"]].dropna()
+        ax.scatter(pair[f], pair["next_day_recovery"], s=12, alpha=0.35, color=ACCENT)
+        if len(pair) >= 20:
+            r, p = stats.pearsonr(pair[f], pair["next_day_recovery"])
+            slope, intercept, _, _, _ = stats.linregress(pair[f], pair["next_day_recovery"])
+            xs = np.linspace(pair[f].min(), pair[f].max(), 50)
+            ax.plot(xs, intercept + slope * xs, color=ACCENT2, lw=1.5)
+            ax.set_title(f"{label}\nr = {r:+.3f}, p = {p:.3f}, n = {len(pair)}",
+                         fontsize=10)
+        ax.set_xlabel(label, fontsize=9)
+        ax.set_ylabel("Next-day recovery %", fontsize=9)
+    fig.suptitle("Post-workout listening features vs. next-day recovery",
+                 fontsize=13, fontweight="bold")
+    plt.tight_layout()
+    plt.savefig(out_path); plt.close()
+
+
+def plot_correlation_heatmap(res, out_path):
+    top = res.head(20).copy().reset_index(drop=True)
+    n = len(top)
+
+    # Two-panel layout: bars on the left, clean annotation table on the right
+    fig, (ax_bar, ax_tbl) = plt.subplots(
+        1, 2, figsize=(12, 7),
+        gridspec_kw={"width_ratios": [3, 1.3], "wspace": 0.05},
+    )
+    y = np.arange(n)[::-1]
+    colors = [ACCENT if r >= 0 else ACCENT2 for r in top["pearson_r"]]
+    ax_bar.barh(y, top["pearson_r"], color=colors, alpha=0.88)
+    ax_bar.set_yticks(y)
+    ax_bar.set_yticklabels(top["feature"].str.replace("_", " "), fontsize=10)
+    ax_bar.axvline(0, color="#28251D", lw=0.6)
+    ax_bar.set_xlabel("Pearson r (vs next-day recovery)")
+    ax_bar.set_title("Top 20 post-workout listening features ranked by |r| with next-day recovery",
+                     pad=12, loc="left")
+
+    xmax = max(abs(top["pearson_r"].max()), abs(top["pearson_r"].min())) * 1.15
+    ax_bar.set_xlim(-xmax, xmax)
+
+    # Right panel: clean annotation table (r, p, n)
+    ax_tbl.set_xlim(0, 1)
+    ax_tbl.set_ylim(ax_bar.get_ylim())
+    ax_tbl.axis("off")
+    ax_tbl.text(0.08, n - 0.5, "r", fontsize=10, fontweight="bold", color="#28251D")
+    ax_tbl.text(0.45, n - 0.5, "p", fontsize=10, fontweight="bold", color="#28251D")
+    ax_tbl.text(0.80, n - 0.5, "n", fontsize=10, fontweight="bold", color="#28251D")
+    for i, row in top.iterrows():
+        yi = n - 1 - i
+        sig = "*" if row["pearson_p"] < 0.05 else " "
+        ax_tbl.text(0.08, yi, f"{row['pearson_r']:+.3f}", fontsize=10,
+                    va="center", color="#28251D",
+                    fontweight="bold" if row["pearson_p"] < 0.05 else "normal")
+        ax_tbl.text(0.45, yi, f"{row['pearson_p']:.3f}{sig}", fontsize=10,
+                    va="center", color="#28251D")
+        ax_tbl.text(0.80, yi, f"{int(row['n'])}", fontsize=10,
+                    va="center", color=MUTED)
+
+    fig.text(0.5, 0.02,
+             "* p < 0.05    |    Teal = positive correlation, red = negative",
+             ha="center", fontsize=9, color=MUTED)
+    plt.savefig(out_path, bbox_inches="tight"); plt.close()
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Main
+# ─────────────────────────────────────────────────────────────────────
+def main():
+    print("Loading data…")
+    parser, feat, wk = load_data()
+    print(f"  Audio features: {len(feat)} tracks")
+    print(f"  Workouts: {len(wk)}")
+
+    print("\nBuilding per-workout features…")
+    df = build_workout_features(parser, feat, wk)
+
+    out_csv = ROOT / "data/processed/workout_features.csv"
+    df.to_csv(out_csv, index=False)
+    print(f"Saved → {out_csv}")
+
+    print("\nFeature coverage (mean per workout): "
+          f"{df['feature_coverage'].mean():.2%}")
+
+    print("\nRunning correlations vs next_day_recovery…")
+    res = correlate(df)
+    res_csv = ROOT / "data/processed/correlations.csv"
+    res.to_csv(res_csv, index=False)
+    print(f"Saved → {res_csv}")
+
+    print("\n=== Top features by |Pearson r| vs next-day recovery ===")
+    print(res.head(15).to_string(
+        index=False,
+        formatters={
+            "pearson_r": "{:+.3f}".format, "pearson_p": "{:.3f}".format,
+            "spearman_r": "{:+.3f}".format, "spearman_p": "{:.3f}".format,
+        },
+    ))
+
+    print("\nGenerating figures…")
+    FIGDIR = ROOT / "data/processed/figures"
+    plot_feature_distributions(df, FIGDIR / "fig_11_feature_distributions.png")
+    print("  fig_11_feature_distributions.png")
+    plot_feature_vs_recovery(df, FIGDIR / "fig_12_feature_vs_recovery.png")
+    print("  fig_12_feature_vs_recovery.png")
+    plot_correlation_heatmap(res, FIGDIR / "fig_13_correlation_ranking.png")
+    print("  fig_13_correlation_ranking.png")
 
 
 if __name__ == "__main__":
