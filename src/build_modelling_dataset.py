@@ -42,5 +42,36 @@ def load_daily_biometrics() -> pd.DataFrame:
     return df[keep]
 
 
+def daily_listening_aggregates() -> pd.DataFrame:
+    """One row per (London-local) day with Spotify aggregates."""
+    parser = SpotifyParser(str(ROOT / "data/spotify/Spotify Extended Streaming History"))
+    parser.load(); parser.clean()
+    sp = parser.clean_df.copy()
+
+    feat = pd.read_csv(ROOT / "data/processed/audio_features.csv")
+    feat = feat.rename(columns={feat.columns[0]: "track_id"}).set_index("track_id")
+
+    sp["local_date"] = (sp["end_time"].dt.tz_convert("Europe/London")
+                                          .dt.date)
+    sp = sp.merge(feat, left_on="track_id", right_index=True, how="left")
+
+    grouped = sp.groupby("local_date")
+    out = grouped.agg(
+        n_tracks=("track_id", "count"),
+        total_listen_minutes=("listen_seconds", lambda s: s.sum() / 60),
+        unique_artists=("artist_name", "nunique"),
+        artist_concentration=("artist_name",
+                              lambda s: float((s.value_counts(normalize=True) ** 2).sum())),
+    )
+    for f in AUDIO_FEATURES:
+        out[f"{f}_mean"] = grouped[f].mean()
+        out[f"{f}_std"] = grouped[f].std()
+    out["mood_diversity"] = grouped[["valence", "energy", "danceability"]].apply(
+        lambda g: float(g.std().mean()) if len(g) > 1 else np.nan)
+
+    out = out.reset_index().rename(columns={"local_date": "date"})
+    return out
+
+
 if __name__ == "__main__":
     main()
