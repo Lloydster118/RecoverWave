@@ -73,5 +73,35 @@ def daily_listening_aggregates() -> pd.DataFrame:
     return out
 
 
+def post_workout_aggregates() -> pd.DataFrame:
+    """One row per workout-day summarising the post-workout 2h window."""
+    wkf = pd.read_csv(ROOT / "data/processed/workout_features_with_sleep.csv")
+    wkf["workout_end_utc"] = pd.to_datetime(wkf["workout_end_utc"], utc=True,
+                                            errors="coerce")
+    wkf["date"] = (wkf["workout_end_utc"].dt.tz_convert("Europe/London")
+                                          .dt.date)
+
+    rename = {
+        "n_tracks": "pw_n_tracks",
+        "total_listen_minutes": "pw_listen_minutes",
+        "unique_artists": "pw_unique_artists",
+        "mood_diversity": "pw_mood_diversity",
+        "artist_concentration": "pw_artist_concentration",
+        "tempo_mean": "pw_tempo_mean",
+        "valence_mean": "pw_valence_mean",
+        "energy_mean": "pw_energy_mean",
+        "danceability_mean": "pw_danceability_mean",
+        "instrumentalness_mean": "pw_instrumentalness_mean",
+        "loudness_mean": "pw_loudness_mean",
+        "activity_strain": "pw_activity_strain",
+    }
+    cols = ["date"] + list(rename.keys())
+    out = wkf[cols].rename(columns=rename)
+    # If multiple workouts on a day, average — keeps schema 1-row-per-day
+    out = out.groupby("date", as_index=False).mean(numeric_only=True)
+    out["had_workout"] = 1
+    return out
+
+
 if __name__ == "__main__":
     main()
