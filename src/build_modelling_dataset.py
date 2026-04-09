@@ -103,5 +103,43 @@ def post_workout_aggregates() -> pd.DataFrame:
     return out
 
 
+def main():
+    print("Loading daily biometrics…")
+    bio = load_daily_biometrics()
+    print(f"  {len(bio)} days")
+
+    print("Aggregating daily Spotify listening…")
+    listen = daily_listening_aggregates()
+    print(f"  {len(listen)} days with listening")
+
+    print("Aggregating post-workout windows…")
+    pw = post_workout_aggregates()
+    print(f"  {len(pw)} workout-days")
+
+    # Merge on date, restrict to Whoop era
+    df = bio.merge(listen, on="date", how="left")
+    df = df.merge(pw, on="date", how="left")
+    df["had_workout"] = df["had_workout"].fillna(0).astype(int)
+    df = df.sort_values("date").reset_index(drop=True)
+
+    # Build target: next-day recovery
+    df["next_day_recovery"] = df["recovery_score"].shift(-1)
+    # Persistence features
+    df["recovery_lag1"] = df["recovery_score"].shift(1)
+    df["recovery_lag2"] = df["recovery_score"].shift(2)
+
+    # Drop the most recent day (no next-day target) and any pre-Whoop NaNs
+    valid = df.dropna(subset=["next_day_recovery", "recovery_score"]).reset_index(drop=True)
+
+    print(f"\nFinal modelling dataset: {len(valid)} rows  ({valid['date'].min()} → {valid['date'].max()})")
+    print(f"Days with workout: {valid['had_workout'].sum()}")
+    print(f"Days with listening: {valid['n_tracks'].notna().sum()}")
+    print(f"Mean next-day recovery: {valid['next_day_recovery'].mean():.1f}")
+
+    out_path = ROOT / "data/processed/modelling_dataset.csv"
+    valid.to_csv(out_path, index=False)
+    print(f"\nSaved → {out_path}")
+
+
 if __name__ == "__main__":
     main()
