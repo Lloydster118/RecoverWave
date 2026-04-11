@@ -103,6 +103,15 @@ def predict_persistence(df: pd.DataFrame, train_idx, test_idx) -> np.ndarray:
     return df.loc[test_idx, "recovery_score"].to_numpy()
 
 
+def predict_seasonal_dow(df: pd.DataFrame, train_idx, test_idx) -> np.ndarray:
+    train = df.iloc[train_idx].copy()
+    train["dow"] = train["date"].dt.dayofweek
+    means = train.groupby("dow")[TARGET].mean()
+    test = df.iloc[test_idx].copy()
+    test["dow"] = test["date"].dt.dayofweek
+    return test["dow"].map(means).fillna(train[TARGET].mean()).to_numpy()
+
+
 @dataclass
 class FoldResult:
     fold: int
