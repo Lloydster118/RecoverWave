@@ -131,5 +131,29 @@ def _score(fold: int, name: str, y_true, y_pred) -> FoldResult:
     )
 
 
-if __name__ == "__main__":
-    main()
+def main():
+    df = load_modelling_data()
+    n_features = 5  # ridge only uses a small initial feature set
+    X = df[["hrv", "rhr", "strain", "n_tracks", "minutes_listened"]].fillna(0).values
+    y = df["next_day_recovery"].values
+
+    folds = make_blocked_folds(len(df))
+    results = []
+    for fi, (tr, te) in enumerate(folds):
+        # Persistence
+        y_pred = predict_persistence(df, tr, te)
+        results.append(_score(fi, "persistence", y[te], y_pred))
+        # Seasonal DoW
+        y_pred = predict_seasonal_dow(df, tr, te)
+        results.append(_score(fi, "seasonal_dow", y[te], y_pred))
+        # Ridge
+        from sklearn.linear_model import Ridge
+        from sklearn.preprocessing import StandardScaler
+        sc = StandardScaler().fit(X[tr])
+        m = Ridge(alpha=1.0).fit(sc.transform(X[tr]), y[tr])
+        y_pred = m.predict(sc.transform(X[te]))
+        results.append(_score(fi, "ridge", y[te], y_pred))
+
+    out = pd.DataFrame([r.__dict__ for r in results])
+    print(out.groupby("model")[["mae", "r"]].agg(["mean", "std"]))
+    out.to_csv("data/processed/cv_results.csv", index=False)
