@@ -150,7 +150,7 @@ def main():
         from sklearn.linear_model import Ridge
         from sklearn.preprocessing import StandardScaler
         sc = StandardScaler().fit(X[tr])
-        m = Ridge(alpha=1.0).fit(sc.transform(X[tr]), y[tr])
+        m = Ridge(alpha=2.0).fit(sc.transform(X[tr]), y[tr])
         y_pred = m.predict(sc.transform(X[te]))
         results.append(_score(fi, "ridge", y[te], y_pred))
 
