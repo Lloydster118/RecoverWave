@@ -153,6 +153,12 @@ def main():
         m = Ridge(alpha=2.0).fit(sc.transform(X[tr]), y[tr])
         y_pred = m.predict(sc.transform(X[te]))
         results.append(_score(fi, "ridge", y[te], y_pred))
+        # GBM
+        from sklearn.ensemble import GradientBoostingRegressor
+        m = GradientBoostingRegressor(n_estimators=200, max_depth=3, random_state=20260504)
+        m.fit(X[tr], y[tr])
+        y_pred = m.predict(X[te])
+        results.append(_score(fi, "gbm", y[te], y_pred))
 
     out = pd.DataFrame([r.__dict__ for r in results])
     print(out.groupby("model")[["mae", "r"]].agg(["mean", "std"]))
