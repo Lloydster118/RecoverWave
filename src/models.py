@@ -155,7 +155,7 @@ def main():
         results.append(_score(fi, "ridge", y[te], y_pred))
         # GBM
         from sklearn.ensemble import GradientBoostingRegressor
-        m = GradientBoostingRegressor(n_estimators=200, max_depth=3, random_state=20260504)
+        m = GradientBoostingRegressor(n_estimators=400, max_depth=3, random_state=20260504)
         m.fit(X[tr], y[tr])
         y_pred = m.predict(X[te])
         results.append(_score(fi, "gbm", y[te], y_pred))
