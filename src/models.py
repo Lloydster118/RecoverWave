@@ -159,6 +159,16 @@ def main():
         m.fit(X[tr], y[tr])
         y_pred = m.predict(X[te])
         results.append(_score(fi, "gbm", y[te], y_pred))
+        # LSTM + attention
+        X_seq, y_seq = build_sequences(X[tr], y[tr])
+        X_te_seq, y_te_seq = build_sequences(X[te], y[te])
+        model, _ = train_lstm(X_seq, y_seq, X_te_seq, y_te_seq)
+        # Predict (simplified)
+        import torch
+        model.eval()
+        with torch.no_grad():
+            preds, _ = model(torch.from_numpy(X_te_seq).float())
+        results.append(_score(fi, "lstm_attn", y_te_seq, preds.numpy().flatten()))
 
     out = pd.DataFrame([r.__dict__ for r in results])
     print(out.groupby("model")[["mae", "r"]].agg(["mean", "std"]))
