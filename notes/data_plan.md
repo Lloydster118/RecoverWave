@@ -21,3 +21,7 @@
 
 - 18 Jan: requested Spotify Extended Streaming History via privacy page
 - Waiting up to 30 days. Will work on synthetic data + public datasets in the meantime.
+
+## Status update
+
+- 21 Apr: Whoop export downloaded + Spotify Extended Streaming History delivered same day. Beginning real-data ingestion.
