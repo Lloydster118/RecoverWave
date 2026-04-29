@@ -9,3 +9,6 @@ Quick sanity ridge fit on real data:
 - GBM: 19.9 (Pearson r ~0.25)
 
 Music features are weak. Sleep features dominate.
+
+## 29 Apr
+Tried seq_len=14 (two weeks) - made it worse. Reverted to 7. Attention naturally concentrates on last 3 days so longer context is just noise.
