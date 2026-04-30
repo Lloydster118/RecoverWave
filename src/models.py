@@ -67,8 +67,6 @@ SEQ_LEN = 7
 # ─────────────────────────────────────────────────────────────────────
 # Data loading
 # ─────────────────────────────────────────────────────────────────────
-
-
 def load_modelling_data() -> pd.DataFrame:
     df = pd.read_csv(ROOT / "data/processed/modelling_dataset.csv")
     df["date"] = pd.to_datetime(df["date"])
@@ -99,6 +97,9 @@ def make_blocked_folds(n: int, n_folds: int = 5):
         yield k, train_idx, test_idx
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Baselines
+# ─────────────────────────────────────────────────────────────────────
 def predict_persistence(df: pd.DataFrame, train_idx, test_idx) -> np.ndarray:
     return df.loc[test_idx, "recovery_score"].to_numpy()
 
@@ -112,6 +113,110 @@ def predict_seasonal_dow(df: pd.DataFrame, train_idx, test_idx) -> np.ndarray:
     return test["dow"].map(means).fillna(train[TARGET].mean()).to_numpy()
 
 
+# ─────────────────────────────────────────────────────────────────────
+# LSTM
+# ─────────────────────────────────────────────────────────────────────
+class AdditiveAttention(nn.Module):
+    """Bahdanau-style additive attention over the LSTM time axis.
+
+    Given an LSTM output sequence H ∈ ℝ^{B × T × D} this layer learns a
+    scalar score e_t = vᵀ tanh(W_h h_t + b) for each step t, normalises
+    them with softmax over time, and returns the convex combination
+    c = Σ_t α_t h_t together with the attention weights α.
+    """
+
+    def __init__(self, hidden: int):
+        super().__init__()
+        self.W = nn.Linear(hidden, hidden, bias=True)
+        self.v = nn.Linear(hidden, 1, bias=False)
+
+    def forward(self, H):  # H: (B, T, D)
+        scores = self.v(torch.tanh(self.W(H))).squeeze(-1)  # (B, T)
+        weights = torch.softmax(scores, dim=1)              # (B, T)
+        context = torch.bmm(weights.unsqueeze(1), H).squeeze(1)  # (B, D)
+        return context, weights
+
+
+class RecoveryLSTM(nn.Module):
+    """Sequence-to-one regressor: 7-day window → next-day recovery.
+
+    Architecture: 2-layer LSTM → additive attention pooling → MLP head.
+    """
+
+    def __init__(self, n_features: int, hidden: int = 64,
+                 num_layers: int = 2, dropout: float = 0.2):
+        super().__init__()
+        self.lstm = nn.LSTM(input_size=n_features, hidden_size=hidden,
+                            num_layers=num_layers, dropout=dropout,
+                            batch_first=True)
+        self.attn = AdditiveAttention(hidden)
+        self.head = nn.Sequential(
+            nn.Linear(hidden, 32), nn.ReLU(), nn.Dropout(dropout),
+            nn.Linear(32, 1),
+        )
+
+    def forward(self, x, return_weights: bool = False):
+        out, _ = self.lstm(x)
+        context, weights = self.attn(out)
+        y = self.head(context).squeeze(-1)
+        if return_weights:
+            return y, weights
+        return y
+
+
+def build_sequences(X: np.ndarray, y: np.ndarray, seq_len: int = SEQ_LEN):
+    """Slide a window of length seq_len; target is the day immediately after the window."""
+    Xs, ys = [], []
+    for i in range(seq_len, len(X)):
+        Xs.append(X[i - seq_len:i])
+        ys.append(y[i])
+    return np.array(Xs, dtype="float32"), np.array(ys, dtype="float32")
+
+
+def train_lstm(X_train, y_train, X_val, y_val,
+               n_features: int, epochs: int = 60, lr: float = 1e-3,
+               batch_size: int = 32, patience: int = 8):
+    model = RecoveryLSTM(n_features).to(DEVICE)
+    opt = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
+    loss_fn = nn.L1Loss()  # train on MAE directly
+
+    Xt = torch.tensor(X_train).to(DEVICE)
+    yt = torch.tensor(y_train).to(DEVICE)
+    Xv = torch.tensor(X_val).to(DEVICE)
+    yv = torch.tensor(y_val).to(DEVICE)
+
+    best_val = float("inf"); best_state = None; bad = 0
+    n = len(Xt)
+    for epoch in range(epochs):
+        model.train()
+        perm = torch.randperm(n, device=DEVICE)
+        for i in range(0, n, batch_size):
+            idx = perm[i:i + batch_size]
+            opt.zero_grad()
+            pred = model(Xt[idx])
+            loss = loss_fn(pred, yt[idx])
+            loss.backward()
+            opt.step()
+        model.eval()
+        with torch.no_grad():
+            v_pred = model(Xv)
+            v_loss = loss_fn(v_pred, yv).item()
+        if v_loss < best_val - 1e-3:
+            best_val = v_loss
+            best_state = {k: v.clone() for k, v in model.state_dict().items()}
+            bad = 0
+        else:
+            bad += 1
+            if bad >= patience:
+                break
+    if best_state is not None:
+        model.load_state_dict(best_state)
+    return model
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Main CV loop
+# ─────────────────────────────────────────────────────────────────────
 @dataclass
 class FoldResult:
     fold: int
@@ -120,6 +225,109 @@ class FoldResult:
     mae: float
     rmse: float
     r2: float
+
+
+def main():
+    print("Loading modelling dataset…")
+    df = load_modelling_data()
+    print(f"  rows: {len(df)}    date: {df.date.min().date()} → {df.date.max().date()}")
+    feat_cols = [c for c in FEATURES if c in df.columns]
+    print(f"  features: {len(feat_cols)}")
+
+    X_all = df[feat_cols].to_numpy(dtype="float32")
+    y_all = df[TARGET].to_numpy(dtype="float32")
+
+    all_results: list[FoldResult] = []
+    all_preds: list[pd.DataFrame] = []
+
+    for k, tr, te in make_blocked_folds(len(df), n_folds=5):
+        date_tr = (df.date.iloc[tr].min().date(), df.date.iloc[tr].max().date())
+        date_te = (df.date.iloc[te].min().date(), df.date.iloc[te].max().date())
+        print(f"\n── Fold {k}  train {date_tr[0]}\u2192{date_tr[1]} ({len(tr)})  "
+              f"test {date_te[0]}\u2192{date_te[1]} ({len(te)})")
+
+        y_test = y_all[te]
+        fold_preds = {"date": df.date.iloc[te].dt.date.to_numpy(),
+                      "actual": y_test}
+
+        # Persistence
+        p = predict_persistence(df, tr, te)
+        all_results.append(_score(k, "Persistence", y_test, p))
+        fold_preds["Persistence"] = p
+
+        # Seasonal day-of-week
+        p = predict_seasonal_dow(df, tr, te)
+        all_results.append(_score(k, "SeasonalDoW", y_test, p))
+        fold_preds["SeasonalDoW"] = p
+
+        # Scale features (fit on train only)
+        scaler = StandardScaler().fit(X_all[tr])
+        Xtr = scaler.transform(X_all[tr])
+        Xte = scaler.transform(X_all[te])
+
+        # Ridge regression
+        ridge = Ridge(alpha=1.0, random_state=RNG_SEED).fit(Xtr, y_all[tr])
+        p = ridge.predict(Xte)
+        all_results.append(_score(k, "Ridge", y_test, p))
+        fold_preds["Ridge"] = p
+
+        # Gradient Boosting
+        gbm = HistGradientBoostingRegressor(
+            max_iter=300, max_depth=5, learning_rate=0.05,
+            random_state=RNG_SEED).fit(X_all[tr], y_all[tr])
+        p = gbm.predict(X_all[te])
+        all_results.append(_score(k, "GBM", y_test, p))
+        fold_preds["GBM"] = p
+
+        # LSTM (uses scaled features, sequence-windowed)
+        # Carve a small validation slice from the END of the training window
+        val_size = max(30, int(0.15 * len(tr)))
+        tr_inner_end = len(tr) - val_size
+        Xs_tr_seq, ys_tr_seq = build_sequences(Xtr[:tr_inner_end],
+                                               y_all[tr][:tr_inner_end])
+        Xs_val_seq, ys_val_seq = build_sequences(Xtr[tr_inner_end - SEQ_LEN:],
+                                                  y_all[tr][tr_inner_end - SEQ_LEN:])
+        # Build test sequences using the LAST SEQ_LEN train days as warm-up
+        test_input = np.concatenate([Xtr[-SEQ_LEN:], Xte], axis=0)
+        test_target = np.concatenate([y_all[tr][-SEQ_LEN:], y_test], axis=0)
+        Xs_te_seq, ys_te_seq = build_sequences(test_input, test_target)
+
+        model = train_lstm(Xs_tr_seq, ys_tr_seq,
+                           Xs_val_seq, ys_val_seq, n_features=Xtr.shape[1])
+        model.eval()
+        with torch.no_grad():
+            p = model(torch.tensor(Xs_te_seq).to(DEVICE)).cpu().numpy()
+        all_results.append(_score(k, "LSTM", y_test, p))
+        fold_preds["LSTM"] = p
+
+        all_preds.append(pd.DataFrame(fold_preds).assign(fold=k))
+
+    # ──────────────────────────────────────────────────────────────
+    # Save and summarise
+    # ──────────────────────────────────────────────────────────────
+    res_df = pd.DataFrame([r.__dict__ for r in all_results])
+    res_path = ROOT / "data/processed/cv_results.csv"
+    res_df.to_csv(res_path, index=False)
+
+    summary = (res_df.groupby("model")
+                     .agg(mae_mean=("mae", "mean"), mae_std=("mae", "std"),
+                          rmse_mean=("rmse", "mean"),
+                          r2_mean=("r2", "mean"), r2_std=("r2", "std"))
+                     .sort_values("mae_mean"))
+    sum_path = ROOT / "data/processed/cv_summary.csv"
+    summary.to_csv(sum_path)
+
+    preds = pd.concat(all_preds, ignore_index=True)
+    pred_path = ROOT / "data/processed/cv_predictions.csv"
+    preds.to_csv(pred_path, index=False)
+
+    print("\n============================================================")
+    print("CROSS-VALIDATION SUMMARY  (5 chronological folds)")
+    print("============================================================")
+    print(summary.round(3).to_string())
+    print(f"\nSaved fold-level results → {res_path}")
+    print(f"Saved per-model summary → {sum_path}")
+    print(f"Saved predictions      → {pred_path}")
 
 
 def _score(fold: int, name: str, y_true, y_pred) -> FoldResult:
@@ -131,45 +339,5 @@ def _score(fold: int, name: str, y_true, y_pred) -> FoldResult:
     )
 
 
-def main():
-    df = load_modelling_data()
-    n_features = 5  # ridge only uses a small initial feature set
-    X = df[["hrv", "rhr", "strain", "n_tracks", "minutes_listened"]].fillna(0).values
-    y = df["next_day_recovery"].values
-
-    folds = make_blocked_folds(len(df))
-    results = []
-    for fi, (tr, te) in enumerate(folds):
-        # Persistence
-        y_pred = predict_persistence(df, tr, te)
-        results.append(_score(fi, "persistence", y[te], y_pred))
-        # Seasonal DoW
-        y_pred = predict_seasonal_dow(df, tr, te)
-        results.append(_score(fi, "seasonal_dow", y[te], y_pred))
-        # Ridge
-        from sklearn.linear_model import Ridge
-        from sklearn.preprocessing import StandardScaler
-        sc = StandardScaler().fit(X[tr])
-        m = Ridge(alpha=2.0).fit(sc.transform(X[tr]), y[tr])
-        y_pred = m.predict(sc.transform(X[te]))
-        results.append(_score(fi, "ridge", y[te], y_pred))
-        # GBM
-        from sklearn.ensemble import GradientBoostingRegressor
-        m = GradientBoostingRegressor(n_estimators=500, max_depth=3, learning_rate=0.05, random_state=20260504)
-        m.fit(X[tr], y[tr])
-        y_pred = m.predict(X[te])
-        results.append(_score(fi, "gbm", y[te], y_pred))
-        # LSTM + attention
-        X_seq, y_seq = build_sequences(X[tr], y[tr])
-        X_te_seq, y_te_seq = build_sequences(X[te], y[te])
-        model, _ = train_lstm(X_seq, y_seq, X_te_seq, y_te_seq)
-        # Predict (simplified)
-        import torch
-        model.eval()
-        with torch.no_grad():
-            preds, _ = model(torch.from_numpy(X_te_seq).float())
-        results.append(_score(fi, "lstm_attn", y_te_seq, preds.numpy().flatten()))
-
-    out = pd.DataFrame([r.__dict__ for r in results])
-    print(out.groupby("model")[["mae", "r"]].agg(["mean", "std"]))
-    out.to_csv("data/processed/cv_results.csv", index=False)
+if __name__ == "__main__":
+    main()
