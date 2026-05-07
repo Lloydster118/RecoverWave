@@ -12,6 +12,24 @@ Author: Harry Lloyd (22224922) · Supervisor: Dr Shahadate Rezvy
 
 > Do the audio characteristics (tempo, energy, valence) of music listened to in the two-hour window following a workout predict next-day Whoop recovery score, and can a sequence model identify optimal "recovery listening" patterns?
 
+## Headline Results
+
+Five-fold chronological cross-validation on 954 daily observations (Aug 2023 – Apr 2026), 36 engineered features, evaluated on next-day Whoop recovery score.
+
+| Model | MAE (lower is better) | Pearson r |
+|---|---|---|
+| **SeasonalDoW (best)** | **19.75 ± 1.36** | — |
+| GBM | 19.93 ± 2.33 | 0.25 |
+| Ridge | 19.97 ± 2.67 | 0.21 |
+| LSTM + Attention | 20.20 ± 2.25 | −0.02 |
+| Persistence baseline | 27.67 ± 4.23 | −0.05 |
+
+**Mediation analysis** (post-workout listening duration → sleep efficiency → recovery): indirect effect ≈ 25 % of the total effect (a = −0.0222 hours of sleep per track, b = +4.94 recovery points per hour of sleep).
+
+**Attention weights** concentrate on the three most recent days (t: 0.353, t−1: 0.338, t−2: 0.253 — ~94 %).
+
+Reproducibility: deterministic seed `RNG_SEED = 20260504`, 5 chronological blocks of 159 test days each.
+
 ## Project Structure
 
 ```
