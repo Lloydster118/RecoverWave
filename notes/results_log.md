@@ -30,3 +30,6 @@ Attention weights: t=0.353, t-1=0.338, t-2=0.253 (~94% on 3 most recent days)
 Mediation: a=-0.0222 hours/track, b=+4.94 recovery/hour, indirect ~25% of total effect.
 
 Writing up.
+
+## 9 May
+Final sanity check on whoop column normalisation - all sample CSV variants handled.
