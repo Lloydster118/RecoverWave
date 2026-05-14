@@ -1,4 +1,29 @@
-venv/
+# Data (personal — do not commit)
+data/whoop/
+data/spotify/
+data/public/
+data/processed/
+
+# Models
+models/*.pkl
+models/*.pt
+models/*.joblib
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
 .DS_Store
+Thumbs.db
