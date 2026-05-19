@@ -28,7 +28,7 @@ Five-fold chronological cross-validation on 954 daily observations (Aug 2023 –
 
 **Attention weights** concentrate on the three most recent days (t: 0.353, t−1: 0.338, t−2: 0.253 — ~94 %).
 
-Reproducibility: deterministic seed `RNG_SEED = 20260504`, 5 chronological blocks of 159 test days each.
+Reproducibility: deterministic seed `RNG_SEED = 20260504`, five chronological test folds of 159 days each (795 days) after an initial 159-day training block, covering all 954 daily observations.
 
 ## Project Structure
 
@@ -71,8 +71,8 @@ recoverwave/
 Tested on Python 3.11 (Linux, macOS, WSL).
 
 ```bash
-git clone https://github.com/<your-username>/recoverwave.git
-cd recoverwave
+git clone https://github.com/Lloydster118/RecoverWave.git
+cd RecoverWave
 
 python -m venv venv
 source venv/bin/activate          # Linux / macOS
